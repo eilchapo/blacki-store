@@ -158,7 +158,8 @@
     "notes": "7,000",
     "images": [
       "C:\\Users\\ORIENT TECH\\Desktop\\dist\\dist\\blacki_data\\images\\72a4bef6b8be4125af4863e4e654434c.jpeg"
-    ]
+    ],
+    "price": "7,000"
   },
   {
     "id": "784ae979ddbb4914a042d5b1f2629567",
@@ -172,12 +173,13 @@
   },
   {
     "id": "19cd04f76d57497c99f7baf08cde419b",
-    "label": "بيت ماروكو تركيب",
+    "label": "بيت ماروكو تركيب وردي",
     "tags": [],
     "notes": "12,000",
     "images": [
       "C:\\Users\\ORIENT TECH\\Desktop\\dist\\dist\\blacki_data\\images\\72087175e8124bc399215cec0d8f852a.jpeg"
-    ]
+    ],
+    "price": "12,000"
   },
   {
     "id": "6aeb2e6dcd724c6098c740c633a48f4d",
@@ -196,7 +198,7 @@
     "images": [
       "C:\\Users\\ORIENT TECH\\Desktop\\dist\\dist\\blacki_data\\images\\1e7b683eba064c139ded989cd8e9dbdf.jpeg"
     ],
-    "price": "4"
+    "price": "4,000"
   },
   {
     "id": "8fc2b1b15aea4fce8517c71f84b633f5",
@@ -242,24 +244,6 @@
     "notes": "45,000",
     "images": [
       "C:\\Users\\ORIENT TECH\\Desktop\\dist\\dist\\blacki_data\\images\\90a2692744ef404db08eb0ff379e437b.jpeg"
-    ]
-  },
-  {
-    "id": "3c077f0969f24cc5b602ac19f369f020",
-    "label": "كابتن امريكا",
-    "tags": [],
-    "notes": "375,000",
-    "images": [
-      "C:\\Users\\ORIENT TECH\\Desktop\\dist\\dist\\blacki_data\\images\\d43867d8b1a942f3ab118df52b1ea6eb.jpeg"
-    ]
-  },
-  {
-    "id": "7d23929623964f5d81568345d2a175a4",
-    "label": "جندي",
-    "tags": [],
-    "notes": "350,000",
-    "images": [
-      "C:\\Users\\ORIENT TECH\\Desktop\\dist\\dist\\blacki_data\\images\\bedd466fe4204c4d98abc7714a7cfd7b.jpeg"
     ]
   }
 ]
