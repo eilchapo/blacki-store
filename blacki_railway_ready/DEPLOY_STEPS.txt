@@ -1,0 +1,21 @@
+BLACKI STORE — Railway files
+
+1. Copy these files into your existing BLACKI folder.
+2. Keep your existing blacki_data folder and icon.png.
+3. In CMD inside that folder, run:
+
+   git rm --cached "Git-2.55.0.3-64-bit.exe" 2>nul
+   git add blacki_sales_edit_NEW.py main.py requirements.txt .python-version railway.toml .gitignore blacki_data icon.png
+   git commit -m "Make BLACKI cloud ready"
+   git push
+
+4. In Railway Variables add:
+   BLACKI_USERNAME=your username
+   BLACKI_PASSWORD=your strong password
+   BLACKI_SECRET_KEY=a long random value
+
+5. Add a Railway Volume mounted at /data.
+6. Redeploy, then generate a public domain.
+
+The BLACKI app HTML, CSS, JavaScript, screens, and behavior are unchanged.
+Only hosting, persistent paths, and login protection were added.
