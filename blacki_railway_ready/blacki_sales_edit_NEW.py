@@ -139,6 +139,8 @@ input,textarea,button{font-family:inherit;outline:none}
 .count{font-size:11px;color:#555;letter-spacing:1.5px;text-transform:uppercase;margin-top:2px}
 .add-btn{width:44px;height:44px;border-radius:14px;border:none;background:#E8C547;
   display:flex;align-items:center;justify-content:center;cursor:pointer}
+.header-actions{display:flex;gap:8px;align-items:center}.bulk-btn{width:44px;height:44px;border-radius:14px;border:1px solid #2b2612;background:#17150d;color:#E8C547;display:flex;align-items:center;justify-content:center;cursor:pointer}
+.bulk-intro{margin:4px 18px 18px;padding:18px;border-radius:18px;background:linear-gradient(145deg,#17150d,#111);border:1px solid #2a2511;text-align:center}.bulk-intro-icon{font-size:38px;margin-bottom:8px}.bulk-intro-title{font-size:18px;font-weight:900}.bulk-intro-text{font-size:13px;color:#888;line-height:1.6;margin-top:6px}.bulk-pick-btn{width:100%;padding:16px;border-radius:14px;border:none;background:#E8C547;color:#0A0A0A;font-size:16px;font-weight:900;margin-top:16px;cursor:pointer}.bulk-progress{padding:0 18px 12px;color:#888;font-size:12px;font-weight:800}.bulk-preview{margin:0 18px 18px;border-radius:20px;overflow:hidden;background:#111;border:1px solid #222}.bulk-preview img{width:100%;aspect-ratio:1;object-fit:contain;display:block;background:#0d0d0d}.bulk-form{padding:0 18px 36px}.bulk-actions{display:grid;grid-template-columns:1fr 2fr;gap:10px;margin-top:22px}.bulk-skip{padding:15px;border-radius:14px;border:1px solid #2a2a2a;background:#141414;color:#aaa;font-weight:800;cursor:pointer}.bulk-next{padding:15px;border-radius:14px;border:none;background:#E8C547;color:#0A0A0A;font-weight:900;cursor:pointer}.bulk-loading{text-align:center;padding:48px 20px;color:#888}.bulk-done{text-align:center;padding:70px 20px}.bulk-done-icon{font-size:54px}.bulk-done-title{font-size:22px;font-weight:900;margin-top:12px}.bulk-done-text{color:#888;margin-top:7px}
 
 .search-wrap{padding:8px 18px 14px;position:relative}
 .search-icon{position:absolute;right:32px;top:50%;transform:translateY(-50%)}
@@ -244,6 +246,8 @@ let selectedSale = null;
 let viewIdx = 0;
 let touchStartX = null;
 let pendingImages = [];
+let bulkImages = [];
+let bulkIndex = 0;
 let confirmingDelete = false;
 
 // ============ API ============
@@ -350,9 +354,14 @@ function renderHome(searchQ = "") {
         <div class="logo">BLACKI STORE</div>
         <div class="count">${products.length} منتج</div>
       </div>
-      <button class="add-btn" onclick="renderForm()">
-        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#0A0A0A" stroke-width="2.5" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>
-      </button>
+      <div class="header-actions">
+        <button class="bulk-btn" onclick="renderBulkStart()" aria-label="إضافة عدة منتجات" title="إضافة عدة منتجات">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="14" height="14" rx="2"/><path d="M7 13l3-3 4 4"/><path d="M7 7h.01"/><path d="M19 8v12a1 1 0 0 1-1 1H6"/></svg>
+        </button>
+        <button class="add-btn" onclick="renderForm()">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#0A0A0A" stroke-width="2.5" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>
+        </button>
+      </div>
     </div>
     <div class="search-wrap">
       <svg class="search-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#555" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
@@ -448,6 +457,128 @@ async function doSave(editId) {
   await fetchProducts();
 }
 
+
+
+// ============ BULK PRODUCTS ============
+function renderBulkStart() {
+  currentView = "bulkStart";
+  bulkImages = [];
+  bulkIndex = 0;
+  app.innerHTML = `
+    <div class="top-bar">
+      <button class="back-btn" onclick="renderHome()">
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#F0F0F0" stroke-width="2" stroke-linecap="round"><path d="M19 12H5M12 19l-7-7 7-7"/></svg>
+      </button>
+      <div class="top-title">إضافة عدة منتجات</div>
+      <div style="width:36px"></div>
+    </div>
+    <div class="bulk-intro">
+      <div class="bulk-intro-icon">🖼️📦</div>
+      <div class="bulk-intro-title">اختر صور المنتجات</div>
+      <div class="bulk-intro-text">كل صورة ستكون منتجاً مستقلاً. بعد الاختيار ستظهر الصور واحدة تلو الأخرى لإدخال الاسم والسعر.</div>
+      <input type="file" id="bulkPicker" accept="image/*" multiple style="display:none" onchange="handleBulkFiles(this)">
+      <button class="bulk-pick-btn" onclick="document.getElementById('bulkPicker').click()">اختيار عدة صور</button>
+    </div>`;
+}
+
+async function handleBulkFiles(input) {
+  const files = Array.from(input.files || []);
+  if (!files.length) return;
+  app.innerHTML = `<div class="bulk-loading"><div style="font-size:42px;margin-bottom:12px">⏳</div><div>جاري رفع ${files.length} صورة...</div></div>`;
+  bulkImages = [];
+  bulkIndex = 0;
+  try {
+    for (let i = 0; i < files.length; i++) {
+      const formData = new FormData();
+      formData.append("file", files[i]);
+      const r = await fetch("/api/upload", {method:"POST", body:formData});
+      if (!r.ok) throw new Error("تعذر رفع الصورة رقم " + (i + 1));
+      const data = await r.json();
+      bulkImages.push(data.path);
+    }
+    renderBulkItem();
+  } catch (e) {
+    alert(e.message || "حدث خطأ أثناء رفع الصور");
+    renderBulkStart();
+  }
+}
+
+function renderBulkItem() {
+  currentView = "bulkItem";
+  if (bulkIndex >= bulkImages.length) return renderBulkDone();
+  const imagePath = bulkImages[bulkIndex];
+  app.innerHTML = `
+    <div class="top-bar">
+      <button class="back-btn" onclick="confirmCancelBulk()">
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#F0F0F0" stroke-width="2" stroke-linecap="round"><path d="M19 12H5M12 19l-7-7 7-7"/></svg>
+      </button>
+      <div class="top-title">منتج ${bulkIndex + 1} من ${bulkImages.length}</div>
+      <div style="width:36px"></div>
+    </div>
+    <div class="bulk-progress">تم حفظ ${bulkIndex} • متبقي ${bulkImages.length - bulkIndex}</div>
+    <div class="bulk-preview"><img src="${imgUrl(imagePath)}" alt="صورة المنتج الحالي"></div>
+    <div class="bulk-form">
+      <div class="field-label">اسم المنتج</div>
+      <input class="form-input" id="bulkLabel" placeholder="مثال: ايرون مان" autocomplete="off">
+      <div class="field-label">السعر (IQD)</div>
+      <input class="form-input" id="bulkPrice" type="text" inputmode="numeric" placeholder="مثال: 25,000" oninput="this.value=formatPrice(this.value)">
+      <div class="bulk-actions">
+        <button class="bulk-skip" onclick="skipBulkItem()">تخطي</button>
+        <button class="bulk-next" onclick="saveBulkItem()">${bulkIndex === bulkImages.length - 1 ? 'حفظ وإنهاء' : 'حفظ والتالي'}</button>
+      </div>
+    </div>`;
+  setTimeout(() => document.getElementById("bulkLabel")?.focus(), 80);
+}
+
+async function saveBulkItem() {
+  const labelEl = document.getElementById("bulkLabel");
+  const priceEl = document.getElementById("bulkPrice");
+  const label = (labelEl?.value || "").trim();
+  const price = formatPrice((priceEl?.value || "").trim());
+  if (!label) return alert("ادخل اسم المنتج");
+  const newProduct = {
+    id: Date.now().toString() + "_" + bulkIndex,
+    label,
+    price,
+    images: [bulkImages[bulkIndex]]
+  };
+  const saveButton = document.querySelector(".bulk-next");
+  if (saveButton) { saveButton.disabled = true; saveButton.textContent = "جاري الحفظ..."; }
+  try {
+    await apiSave(newProduct);
+    products.unshift(newProduct);
+    bulkIndex += 1;
+    renderBulkItem();
+  } catch (e) {
+    alert("تعذر حفظ المنتج");
+    if (saveButton) { saveButton.disabled = false; saveButton.textContent = "حفظ والتالي"; }
+  }
+}
+
+function skipBulkItem() {
+  if (!confirm("تخطي هذه الصورة بدون إنشاء منتج؟")) return;
+  bulkIndex += 1;
+  renderBulkItem();
+}
+
+function confirmCancelBulk() {
+  if (bulkIndex > 0 || bulkImages.length > 0) {
+    if (!confirm("إلغاء العملية؟ المنتجات التي تم حفظها ستبقى محفوظة.")) return;
+  }
+  renderHome();
+}
+
+function renderBulkDone() {
+  currentView = "bulkDone";
+  const savedCount = Math.min(bulkIndex, bulkImages.length);
+  app.innerHTML = `
+    <div class="bulk-done">
+      <div class="bulk-done-icon">✅</div>
+      <div class="bulk-done-title">اكتملت العملية</div>
+      <div class="bulk-done-text">تم المرور على ${bulkImages.length} صورة.</div>
+      <button class="bulk-pick-btn" onclick="fetchProducts()">العودة إلى المنتجات</button>
+    </div>`;
+}
 
 // ============ SALES ============
 function localDateString(d = new Date()) {
@@ -823,30 +954,38 @@ LOGIN_HTML = r"""<!DOCTYPE html>
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no, viewport-fit=cover">
-<meta name="theme-color" content="#0A0A0A">
+<meta name="theme-color" content="#090909">
 <meta name="robots" content="noindex,nofollow,noarchive">
 <title>BLACKI STORE — تسجيل الدخول</title>
 <style>
 *{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
-body{min-height:100vh;min-height:100dvh;background:#0A0A0A;color:#f2f2f2;font-family:-apple-system,system-ui,'Segoe UI',sans-serif;display:flex;align-items:center;justify-content:center;padding:24px}
-.login{width:100%;max-width:420px;background:#111;border:1px solid #252525;border-radius:24px;padding:26px 20px;box-shadow:0 24px 70px rgba(0,0,0,.45)}
-.logo{direction:ltr;text-align:center;color:#E8C547;font-size:26px;font-weight:950;letter-spacing:-.6px}.sub{text-align:center;color:#777;font-size:13px;margin:7px 0 24px}
-label{display:block;color:#777;font-size:12px;font-weight:800;margin:15px 2px 7px}input{width:100%;border:1px solid #292929;background:#090909;color:#fff;border-radius:14px;padding:15px;font-size:16px;outline:none;direction:ltr}input:focus{border-color:#E8C547}
-button{width:100%;margin-top:22px;border:0;border-radius:14px;background:#E8C547;color:#080808;padding:16px;font-size:16px;font-weight:950;cursor:pointer}.error{background:#301515;border:1px solid #5c2626;color:#ffb4b4;border-radius:12px;padding:11px;text-align:center;font-size:13px;margin-bottom:14px}.lock{text-align:center;font-size:38px;margin-bottom:8px}
+body{min-height:100vh;min-height:100dvh;background:#090909;color:#f5f5f5;font-family:-apple-system,system-ui,'Segoe UI',sans-serif;display:flex;align-items:center;justify-content:center;padding:24px;overflow:hidden;position:relative}
+.glow{position:fixed;border-radius:50%;filter:blur(70px);opacity:.22;pointer-events:none}.g1{width:260px;height:260px;background:#E8C547;top:-100px;right:-90px}.g2{width:230px;height:230px;background:#6f5c16;bottom:-120px;left:-90px}
+.login-wrap{width:100%;max-width:420px;position:relative;z-index:1}.brand{text-align:center;margin-bottom:20px}.mark{width:68px;height:68px;margin:0 auto 13px;border-radius:22px;background:linear-gradient(145deg,#f3d55a,#cba92b);display:flex;align-items:center;justify-content:center;color:#090909;font-size:31px;box-shadow:0 16px 40px rgba(232,197,71,.18)}
+.logo{direction:ltr;color:#E8C547;font-size:28px;font-weight:950;letter-spacing:-.8px}.tagline{color:#747474;font-size:13px;margin-top:5px}.login{background:rgba(18,18,18,.94);border:1px solid #292929;border-radius:26px;padding:24px 20px 20px;box-shadow:0 24px 80px rgba(0,0,0,.55);backdrop-filter:blur(16px)}
+.welcome{font-size:20px;font-weight:900;margin-bottom:4px}.hint{font-size:13px;color:#777;margin-bottom:20px;line-height:1.5}
+label{display:block;color:#8a8a8a;font-size:12px;font-weight:800;margin:15px 2px 7px}.input-wrap{position:relative}.input-icon{position:absolute;right:14px;top:50%;transform:translateY(-50%);font-size:17px;opacity:.65}
+input{width:100%;border:1px solid #2a2a2a;background:#0b0b0b;color:#fff;border-radius:15px;padding:15px 44px 15px 14px;font-size:16px;outline:none;direction:ltr;transition:.2s}input:focus{border-color:#E8C547;box-shadow:0 0 0 3px rgba(232,197,71,.09)}
+button{width:100%;margin-top:22px;border:0;border-radius:15px;background:#E8C547;color:#080808;padding:16px;font-size:16px;font-weight:950;cursor:pointer;box-shadow:0 12px 28px rgba(232,197,71,.14)}button:active{transform:scale(.99)}
+.error{background:#2d1515;border:1px solid #5a2929;color:#ffbcbc;border-radius:13px;padding:11px;text-align:center;font-size:13px;margin-bottom:15px}.secure{text-align:center;color:#555;font-size:11px;margin-top:16px}
 </style>
 </head>
 <body>
-<form class="login" method="post" action="/login" autocomplete="on">
-<div class="lock">🔐</div>
-<div class="logo">BLACKI STORE</div>
-<div class="sub">سجّل الدخول لفتح المتجر</div>
-{{ERROR}}
-<label for="username">اسم المستخدم</label>
-<input id="username" name="username" type="text" autocomplete="username" required autofocus>
-<label for="password">كلمة المرور</label>
-<input id="password" name="password" type="password" autocomplete="current-password" required>
-<button type="submit">دخول</button>
-</form>
+<div class="glow g1"></div><div class="glow g2"></div>
+<div class="login-wrap">
+  <div class="brand"><div class="mark">🛍️</div><div class="logo">BLACKI STORE</div><div class="tagline">متجرك معك أينما كنت</div></div>
+  <form class="login" method="post" action="/login" autocomplete="on">
+    <div class="welcome">أهلاً بعودتك 👋</div>
+    <div class="hint">سجّل الدخول للوصول إلى المنتجات والمبيعات.</div>
+    {{ERROR}}
+    <label for="username">اسم المستخدم</label>
+    <div class="input-wrap"><span class="input-icon">👤</span><input id="username" name="username" type="text" autocomplete="username" required autofocus></div>
+    <label for="password">كلمة المرور</label>
+    <div class="input-wrap"><span class="input-icon">🔑</span><input id="password" name="password" type="password" autocomplete="current-password" required></div>
+    <button type="submit">دخول إلى المتجر</button>
+    <div class="secure">🔒 اتصال خاص وآمن</div>
+  </form>
+</div>
 </body>
 </html>"""
 
@@ -874,7 +1013,9 @@ def valid_session_token(token):
         if not hmac.compare_digest(signature, expected):
             return False
         username, expires, _nonce = _b64decode(payload_text).decode("utf-8").split("|", 2)
-        return hmac.compare_digest(username, AUTH_USERNAME) and int(expires) >= int(time.time())
+        return hmac.compare_digest(
+            username.encode("utf-8"), AUTH_USERNAME.encode("utf-8")
+        ) and int(expires) >= int(time.time())
     except (ValueError, TypeError, UnicodeDecodeError):
         return False
 
@@ -1073,8 +1214,12 @@ class Handler(http.server.BaseHTTPRequestHandler):
             form = urllib.parse.parse_qs(self.rfile.read(length).decode("utf-8", errors="replace"))
             username = form.get("username", [""])[0]
             password = form.get("password", [""])[0]
-            valid_user = hmac.compare_digest(username, AUTH_USERNAME)
-            valid_password = hmac.compare_digest(password, AUTH_PASSWORD)
+            valid_user = hmac.compare_digest(
+                username.encode("utf-8"), AUTH_USERNAME.encode("utf-8")
+            )
+            valid_password = hmac.compare_digest(
+                password.encode("utf-8"), AUTH_PASSWORD.encode("utf-8")
+            )
             if valid_user and valid_password:
                 cookie = f"{COOKIE_NAME}={make_session_token()}; Path=/; Max-Age={SESSION_SECONDS}; HttpOnly; SameSite=Strict"
                 if cookie_is_secure():
@@ -1185,6 +1330,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
 if __name__ == "__main__":
     ip = get_local_ip()
     server = http.server.ThreadingHTTPServer(("0.0.0.0", PORT), Handler)
+    print("BLACKI LOGIN FIX V2")
     print("=" * 50)
     print("   BLACKI STORE - NEW SALE EDIT BUILD 2026")
     print("=" * 50)
