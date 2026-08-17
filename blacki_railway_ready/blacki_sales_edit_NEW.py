@@ -12,15 +12,52 @@ import socket
 import base64
 import urllib.parse
 import uuid
+import hashlib
+import hmac
+import mimetypes
+import secrets
+import shutil
+import time
+from http import cookies
 
 if getattr(sys, "frozen", False):
     BASE = os.path.dirname(sys.executable)
 else:
     BASE = os.path.dirname(os.path.abspath(__file__))
 
-DATA = os.path.join(BASE, "blacki_data")
+BUNDLED_DATA = os.path.join(BASE, "blacki_data")
+DATA = os.path.abspath(
+    os.environ.get("RAILWAY_VOLUME_MOUNT_PATH")
+    or os.environ.get("DATA_DIR")
+    or BUNDLED_DATA
+)
 DB = os.path.join(DATA, "products.json")
 SALES_DB = os.path.join(DATA, "sales.json")
+
+def seed_persistent_data():
+    """Copy bundled data into a new Railway volume once, without overwriting saved cloud data."""
+    os.makedirs(os.path.join(DATA, "images"), exist_ok=True)
+    if os.path.abspath(DATA) == os.path.abspath(BUNDLED_DATA):
+        return
+    if not os.path.isdir(BUNDLED_DATA):
+        return
+
+    for filename in ("products.json", "sales.json"):
+        source = os.path.join(BUNDLED_DATA, filename)
+        destination = os.path.join(DATA, filename)
+        if os.path.isfile(source) and not os.path.exists(destination):
+            shutil.copy2(source, destination)
+
+    source_images = os.path.join(BUNDLED_DATA, "images")
+    destination_images = os.path.join(DATA, "images")
+    if os.path.isdir(source_images):
+        for filename in os.listdir(source_images):
+            source = os.path.join(source_images, filename)
+            destination = os.path.join(destination_images, filename)
+            if os.path.isfile(source) and not os.path.exists(destination):
+                shutil.copy2(source, destination)
+
+seed_persistent_data()
 
 def get_local_ip():
     try:
@@ -72,7 +109,7 @@ def save_sales(sales):
     with open(SALES_DB, "w", encoding="utf-8") as f:
         json.dump(sales, f, ensure_ascii=False, indent=2)
 
-PORT = 8000
+PORT = int(os.environ.get("PORT", "8000"))
 
 HTML = r"""<!DOCTYPE html>
 <html lang="ar" dir="rtl">
@@ -102,6 +139,8 @@ input,textarea,button{font-family:inherit;outline:none}
 .count{font-size:11px;color:#555;letter-spacing:1.5px;text-transform:uppercase;margin-top:2px}
 .add-btn{width:44px;height:44px;border-radius:14px;border:none;background:#E8C547;
   display:flex;align-items:center;justify-content:center;cursor:pointer}
+.header-actions{display:flex;gap:8px;align-items:center}.bulk-btn{width:44px;height:44px;border-radius:14px;border:1px solid #2b2612;background:#17150d;color:#E8C547;display:flex;align-items:center;justify-content:center;cursor:pointer}
+.bulk-intro{margin:4px 18px 18px;padding:18px;border-radius:18px;background:linear-gradient(145deg,#17150d,#111);border:1px solid #2a2511;text-align:center}.bulk-intro-icon{font-size:38px;margin-bottom:8px}.bulk-intro-title{font-size:18px;font-weight:900}.bulk-intro-text{font-size:13px;color:#888;line-height:1.6;margin-top:6px}.bulk-pick-btn{width:100%;padding:16px;border-radius:14px;border:none;background:#E8C547;color:#0A0A0A;font-size:16px;font-weight:900;margin-top:16px;cursor:pointer}.bulk-progress{padding:0 18px 12px;color:#888;font-size:12px;font-weight:800}.bulk-preview{margin:0 18px 18px;border-radius:20px;overflow:hidden;background:#111;border:1px solid #222}.bulk-preview img{width:100%;aspect-ratio:1;object-fit:contain;display:block;background:#0d0d0d}.bulk-form{padding:0 18px 36px}.bulk-actions{display:grid;grid-template-columns:1fr 2fr;gap:10px;margin-top:22px}.bulk-skip{padding:15px;border-radius:14px;border:1px solid #2a2a2a;background:#141414;color:#aaa;font-weight:800;cursor:pointer}.bulk-next{padding:15px;border-radius:14px;border:none;background:#E8C547;color:#0A0A0A;font-weight:900;cursor:pointer}.bulk-loading{text-align:center;padding:48px 20px;color:#888}.bulk-done{text-align:center;padding:70px 20px}.bulk-done-icon{font-size:54px}.bulk-done-title{font-size:22px;font-weight:900;margin-top:12px}.bulk-done-text{color:#888;margin-top:7px}
 
 .search-wrap{padding:8px 18px 14px;position:relative}
 .search-icon{position:absolute;right:32px;top:50%;transform:translateY(-50%)}
@@ -178,6 +217,9 @@ input,textarea,button{font-family:inherit;outline:none}
 .filter-row{display:flex;gap:7px;overflow-x:auto;padding-bottom:12px;scrollbar-width:none}
 .filter-row::-webkit-scrollbar{display:none}.filter-btn{flex-shrink:0;border:1px solid #232323;background:#111;color:#777;padding:9px 13px;border-radius:20px;font-size:12px;font-weight:700;cursor:pointer}
 .filter-active{background:#E8C547;color:#0A0A0A;border-color:#E8C547}
+.custom-date-panel{display:grid;grid-template-columns:1fr 1fr;gap:9px;background:#111;border:1px solid #242424;border-radius:15px;padding:12px;margin:0 0 14px}
+.custom-date-field{min-width:0}.custom-date-label{font-size:11px;color:#777;margin-bottom:6px}.custom-date-input-wrap{width:100%;min-width:0;border:1px solid #2A2A2A;background:#0D0D0D;border-radius:11px;padding:10px 11px}.custom-date-input{display:block;width:100%;min-width:0;border:0;background:transparent;color:#F0F0F0;font-size:14px;direction:ltr;padding:0;color-scheme:dark}.custom-date-actions{grid-column:1/-1;display:flex;gap:8px}.custom-date-apply{flex:1;border:none;border-radius:11px;padding:11px;background:#E8C547;color:#0A0A0A;font-weight:900}.custom-date-clear{border:1px solid #2A2A2A;border-radius:11px;padding:11px 14px;background:#171717;color:#aaa;font-weight:800}
+.sale-search{padding:0 0 14px;position:relative}.sale-search .search-input{padding-right:44px}.sale-search-count{font-size:11px;color:#666;margin-top:7px;padding:0 3px}
 .sale-card{width:100%;display:block;text-align:right;background:linear-gradient(135deg,#16112a,#101820);border:1px solid #382b65;border-radius:18px;padding:15px;margin-bottom:11px;color:#F0F0F0;cursor:pointer;box-shadow:0 8px 24px rgba(0,0,0,.22);transition:transform .12s,border-color .12s}
 .sale-card:active{transform:scale(.985);border-color:#E8C547}.sale-head{display:flex;justify-content:space-between;align-items:center;gap:10px}.sale-date{font-size:12px;color:#a89bc9}.sale-amount{font-size:17px;color:#FFD95A;font-weight:900;direction:ltr}.sale-items{margin-top:9px;color:#d0c8df;font-size:13px;line-height:1.7}.sale-open{margin-top:12px;display:flex;align-items:center;justify-content:space-between;color:#73d7ff;font-size:12px;font-weight:800}.sale-detail-wrap{padding:8px 18px 120px}.sale-detail-hero{background:linear-gradient(135deg,#432371,#1f5f78);border:1px solid rgba(255,255,255,.15);border-radius:22px;padding:20px;box-shadow:0 14px 34px rgba(0,0,0,.28)}
 .sale-detail-emoji{font-size:42px}.sale-detail-title{font-size:14px;color:#ddd;margin-top:8px}.sale-detail-total{font-size:32px;font-weight:950;color:#FFE36E;direction:ltr;text-align:right;margin-top:5px}.sale-detail-date{font-size:12px;color:#c8bce0;margin-top:5px}.sale-detail-items{margin-top:14px;background:rgba(0,0,0,.2);border-radius:15px;padding:12px;line-height:1.9;color:#f1edf7;font-size:14px}.sale-detail-actions{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:16px}.sale-detail-btn{padding:14px;border-radius:14px;font-size:14px;font-weight:900;cursor:pointer}.sale-detail-edit{background:#35c98b;color:#061b13;border:none}.sale-detail-delete{background:#ff5f6d;color:white;border:none}.sale-price-editor{display:none;margin-top:14px;background:#111827;border:1px solid #334155;border-radius:16px;padding:14px}.sale-price-editor.open{display:block}.sale-price-label{font-size:12px;color:#94a3b8;margin-bottom:7px}.sale-price-input{width:100%;padding:13px;border-radius:12px;border:1px solid #475569;background:#080d16;color:#fff;font-size:18px;direction:ltr;text-align:right}.sale-editor-buttons{display:flex;gap:8px;margin-top:9px}.sale-editor-save{flex:1;background:#FFD95A;color:#111;border:none;padding:12px;border-radius:11px;font-weight:900}.sale-editor-cancel{flex:1;background:#222b3a;color:#ddd;border:1px solid #3c4656;padding:12px;border-radius:11px;font-weight:800}.build-badge{display:inline-block;margin-top:4px;padding:3px 8px;border-radius:10px;background:#2b1745;color:#d9a7ff;font-size:9px;font-weight:900;letter-spacing:.4px}
@@ -201,12 +243,17 @@ let products = [];
 let sales = [];
 let saleCart = {};
 let salesFilter = "today";
+let salesCustomFrom = "";
+let salesCustomTo = "";
+let saleSearchQuery = "";
 let currentView = "home";
 let selected = null;
 let selectedSale = null;
 let viewIdx = 0;
 let touchStartX = null;
 let pendingImages = [];
+let bulkImages = [];
+let bulkIndex = 0;
 let confirmingDelete = false;
 
 // ============ API ============
@@ -313,9 +360,14 @@ function renderHome(searchQ = "") {
         <div class="logo">BLACKI STORE</div>
         <div class="count">${products.length} منتج</div>
       </div>
-      <button class="add-btn" onclick="renderForm()">
-        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#0A0A0A" stroke-width="2.5" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>
-      </button>
+      <div class="header-actions">
+        <button class="bulk-btn" onclick="renderBulkStart()" aria-label="إضافة عدة منتجات" title="إضافة عدة منتجات">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="14" height="14" rx="2"/><path d="M7 13l3-3 4 4"/><path d="M7 7h.01"/><path d="M19 8v12a1 1 0 0 1-1 1H6"/></svg>
+        </button>
+        <button class="add-btn" onclick="renderForm()">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#0A0A0A" stroke-width="2.5" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>
+        </button>
+      </div>
     </div>
     <div class="search-wrap">
       <svg class="search-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#555" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
@@ -412,6 +464,128 @@ async function doSave(editId) {
 }
 
 
+
+// ============ BULK PRODUCTS ============
+function renderBulkStart() {
+  currentView = "bulkStart";
+  bulkImages = [];
+  bulkIndex = 0;
+  app.innerHTML = `
+    <div class="top-bar">
+      <button class="back-btn" onclick="renderHome()">
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#F0F0F0" stroke-width="2" stroke-linecap="round"><path d="M19 12H5M12 19l-7-7 7-7"/></svg>
+      </button>
+      <div class="top-title">إضافة عدة منتجات</div>
+      <div style="width:36px"></div>
+    </div>
+    <div class="bulk-intro">
+      <div class="bulk-intro-icon">🖼️📦</div>
+      <div class="bulk-intro-title">اختر صور المنتجات</div>
+      <div class="bulk-intro-text">كل صورة ستكون منتجاً مستقلاً. بعد الاختيار ستظهر الصور واحدة تلو الأخرى لإدخال الاسم والسعر.</div>
+      <input type="file" id="bulkPicker" accept="image/*" multiple style="display:none" onchange="handleBulkFiles(this)">
+      <button class="bulk-pick-btn" onclick="document.getElementById('bulkPicker').click()">اختيار عدة صور</button>
+    </div>`;
+}
+
+async function handleBulkFiles(input) {
+  const files = Array.from(input.files || []);
+  if (!files.length) return;
+  app.innerHTML = `<div class="bulk-loading"><div style="font-size:42px;margin-bottom:12px">⏳</div><div>جاري رفع ${files.length} صورة...</div></div>`;
+  bulkImages = [];
+  bulkIndex = 0;
+  try {
+    for (let i = 0; i < files.length; i++) {
+      const formData = new FormData();
+      formData.append("file", files[i]);
+      const r = await fetch("/api/upload", {method:"POST", body:formData});
+      if (!r.ok) throw new Error("تعذر رفع الصورة رقم " + (i + 1));
+      const data = await r.json();
+      bulkImages.push(data.path);
+    }
+    renderBulkItem();
+  } catch (e) {
+    alert(e.message || "حدث خطأ أثناء رفع الصور");
+    renderBulkStart();
+  }
+}
+
+function renderBulkItem() {
+  currentView = "bulkItem";
+  if (bulkIndex >= bulkImages.length) return renderBulkDone();
+  const imagePath = bulkImages[bulkIndex];
+  app.innerHTML = `
+    <div class="top-bar">
+      <button class="back-btn" onclick="confirmCancelBulk()">
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#F0F0F0" stroke-width="2" stroke-linecap="round"><path d="M19 12H5M12 19l-7-7 7-7"/></svg>
+      </button>
+      <div class="top-title">منتج ${bulkIndex + 1} من ${bulkImages.length}</div>
+      <div style="width:36px"></div>
+    </div>
+    <div class="bulk-progress">تم حفظ ${bulkIndex} • متبقي ${bulkImages.length - bulkIndex}</div>
+    <div class="bulk-preview"><img src="${imgUrl(imagePath)}" alt="صورة المنتج الحالي"></div>
+    <div class="bulk-form">
+      <div class="field-label">اسم المنتج</div>
+      <input class="form-input" id="bulkLabel" placeholder="مثال: ايرون مان" autocomplete="off">
+      <div class="field-label">السعر (IQD)</div>
+      <input class="form-input" id="bulkPrice" type="text" inputmode="numeric" placeholder="مثال: 25,000" oninput="this.value=formatPrice(this.value)">
+      <div class="bulk-actions">
+        <button class="bulk-skip" onclick="skipBulkItem()">تخطي</button>
+        <button class="bulk-next" onclick="saveBulkItem()">${bulkIndex === bulkImages.length - 1 ? 'حفظ وإنهاء' : 'حفظ والتالي'}</button>
+      </div>
+    </div>`;
+  setTimeout(() => document.getElementById("bulkLabel")?.focus(), 80);
+}
+
+async function saveBulkItem() {
+  const labelEl = document.getElementById("bulkLabel");
+  const priceEl = document.getElementById("bulkPrice");
+  const label = (labelEl?.value || "").trim();
+  const price = formatPrice((priceEl?.value || "").trim());
+  if (!label) return alert("ادخل اسم المنتج");
+  const newProduct = {
+    id: Date.now().toString() + "_" + bulkIndex,
+    label,
+    price,
+    images: [bulkImages[bulkIndex]]
+  };
+  const saveButton = document.querySelector(".bulk-next");
+  if (saveButton) { saveButton.disabled = true; saveButton.textContent = "جاري الحفظ..."; }
+  try {
+    await apiSave(newProduct);
+    products.unshift(newProduct);
+    bulkIndex += 1;
+    renderBulkItem();
+  } catch (e) {
+    alert("تعذر حفظ المنتج");
+    if (saveButton) { saveButton.disabled = false; saveButton.textContent = "حفظ والتالي"; }
+  }
+}
+
+function skipBulkItem() {
+  if (!confirm("تخطي هذه الصورة بدون إنشاء منتج؟")) return;
+  bulkIndex += 1;
+  renderBulkItem();
+}
+
+function confirmCancelBulk() {
+  if (bulkIndex > 0 || bulkImages.length > 0) {
+    if (!confirm("إلغاء العملية؟ المنتجات التي تم حفظها ستبقى محفوظة.")) return;
+  }
+  renderHome();
+}
+
+function renderBulkDone() {
+  currentView = "bulkDone";
+  const savedCount = Math.min(bulkIndex, bulkImages.length);
+  app.innerHTML = `
+    <div class="bulk-done">
+      <div class="bulk-done-icon">✅</div>
+      <div class="bulk-done-title">اكتملت العملية</div>
+      <div class="bulk-done-text">تم المرور على ${bulkImages.length} صورة.</div>
+      <button class="bulk-pick-btn" onclick="fetchProducts()">العودة إلى المنتجات</button>
+    </div>`;
+}
+
 // ============ SALES ============
 function localDateString(d = new Date()) {
   const y = d.getFullYear();
@@ -440,6 +614,13 @@ function filteredSales() {
     if (salesFilter === "month") {
       return String(sale.date || "").slice(0, 7) === todayString.slice(0, 7);
     }
+    if (salesFilter === "custom") {
+      const saleDate = String(sale.date || "").slice(0, 10);
+      if (!saleDate) return false;
+      if (salesCustomFrom && saleDate < salesCustomFrom) return false;
+      if (salesCustomTo && saleDate > salesCustomTo) return false;
+      return Boolean(salesCustomFrom || salesCustomTo);
+    }
     return true;
   });
 }
@@ -449,11 +630,32 @@ function setSalesFilter(filter) {
   renderSales();
 }
 
+function applyCustomSalesDates() {
+  const from = document.getElementById("salesDateFrom");
+  const to = document.getElementById("salesDateTo");
+  const fromValue = from ? from.value : "";
+  const toValue = to ? to.value : "";
+  if (!fromValue && !toValue) return alert("اختر تاريخاً واحداً على الأقل");
+  if (fromValue && toValue && fromValue > toValue) return alert("تاريخ البداية يجب أن يكون قبل تاريخ النهاية");
+  salesCustomFrom = fromValue;
+  salesCustomTo = toValue;
+  salesFilter = "custom";
+  renderSales();
+}
+
+function clearCustomSalesDates() {
+  salesCustomFrom = "";
+  salesCustomTo = "";
+  salesFilter = "today";
+  renderSales();
+}
+
 function renderSales() {
   currentView = "sales";
   const visibleSales = filteredSales();
   const total = visibleSales.reduce((sum, sale) => sum + Number(sale.total || 0), 0);
-  const labels = {today:"اليوم", yesterday:"أمس", week:"آخر 7 أيام", month:"هذا الشهر", all:"الكل"};
+  const labels = {today:"اليوم", yesterday:"أمس", week:"آخر 7 أيام", month:"هذا الشهر", all:"الكل", custom:"📅 تحديد تاريخ"};
+  const periodLabel = salesFilter === "custom" ? "الفترة المحددة" : labels[salesFilter];
 
   app.innerHTML = `
     <div class="header">
@@ -466,12 +668,27 @@ function renderSales() {
     </div>
     <div class="sales-body">
       <div class="sales-summary">
-        <div class="sales-summary-label">✨ إجمالي مبيعات ${labels[salesFilter]}</div>
+        <div class="sales-summary-label">✨ إجمالي مبيعات ${periodLabel}</div>
         <div class="sales-total">${money(total)}</div>
       </div>
       <div class="filter-row">
         ${Object.entries(labels).map(([key,label]) => `<button class="filter-btn ${salesFilter===key?'filter-active':''}" onclick="setSalesFilter('${key}')">${label}</button>`).join("")}
       </div>
+      ${salesFilter === "custom" ? `
+        <div class="custom-date-panel">
+          <div class="custom-date-field">
+            <div class="custom-date-label">من تاريخ</div>
+            <div class="custom-date-input-wrap"><input class="custom-date-input" id="salesDateFrom" type="date" value="${salesCustomFrom}"></div>
+          </div>
+          <div class="custom-date-field">
+            <div class="custom-date-label">إلى تاريخ</div>
+            <div class="custom-date-input-wrap"><input class="custom-date-input" id="salesDateTo" type="date" value="${salesCustomTo}"></div>
+          </div>
+          <div class="custom-date-actions">
+            <button class="custom-date-apply" onclick="applyCustomSalesDates()">تطبيق</button>
+            <button class="custom-date-clear" onclick="clearCustomSalesDates()">مسح</button>
+          </div>
+        </div>` : ""}
       <div>
         ${visibleSales.length ? visibleSales.map((sale,index) => `
           <button class="sale-card" onclick="openSaleDetail('${sale.id}')">
@@ -561,6 +778,7 @@ async function deleteSelectedSale() {
 function renderNewSale() {
   currentView = "newSale";
   saleCart = {};
+  saleSearchQuery = "";
 
   app.innerHTML = `
     <div class="top-bar">
@@ -573,7 +791,14 @@ function renderNewSale() {
       <div style="width:36px"></div>
     </div>
 
-    <div class="form-body" id="saleProducts" style="padding-bottom:10px"></div>
+    <div class="form-body" style="padding-bottom:10px">
+      <div class="sale-search">
+        <svg class="search-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#555" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
+        <input class="search-input" id="saleSearchInput" placeholder="ابحث عن منتج لإضافته..." value="" oninput="filterSaleProducts(this.value)">
+        <div class="sale-search-count" id="saleSearchCount"></div>
+      </div>
+      <div id="saleProducts"></div>
+    </div>
 
     <div class="sale-footer">
       <div class="sale-total-row">
@@ -583,6 +808,11 @@ function renderNewSale() {
       <button class="save-btn" id="completeSaleBtn" onclick="completeSale()" disabled>حفظ عملية البيع</button>
     </div>`;
 
+  renderSaleProducts();
+}
+
+function filterSaleProducts(value) {
+  saleSearchQuery = String(value || "");
   renderSaleProducts();
 }
 
@@ -596,7 +826,20 @@ function renderSaleProducts() {
     return;
   }
 
-  container.innerHTML = products.map(product => {
+  const q = saleSearchQuery.trim().toLowerCase();
+  const visibleProducts = products.filter(product =>
+    !q || String(product.label || "").toLowerCase().includes(q) || String(product.price || "").toLowerCase().includes(q)
+  );
+  const count = document.getElementById("saleSearchCount");
+  if (count) count.textContent = q ? `${visibleProducts.length} نتيجة` : `${products.length} منتج`;
+
+  if (!visibleProducts.length) {
+    container.innerHTML = `<div class="empty"><div class="empty-icon">🔎</div><div>لا يوجد منتج بهذا الاسم</div></div>`;
+    updateSaleTotal();
+    return;
+  }
+
+  container.innerHTML = visibleProducts.map(product => {
     const qty = saleCart[product.id] || 0;
     const price = priceNumber(product.price);
     const disabledClass = price ? "" : "no-price";
@@ -626,6 +869,8 @@ function changeSaleQty(productId, change) {
   if (next === 0) delete saleCart[productId];
   else saleCart[productId] = next;
   renderSaleProducts();
+  const input = document.getElementById("saleSearchInput");
+  if (input) input.value = saleSearchQuery;
 }
 
 function calculateSaleTotal() {
@@ -773,11 +1018,179 @@ Promise.all([fetchProducts(), fetchSales(false)]);
 </html>"""
 
 
+AUTH_USERNAME = os.environ.get("BLACKI_USERNAME", "blacki")
+AUTH_PASSWORD = os.environ.get("BLACKI_PASSWORD", "change-this-password")
+AUTH_SECRET = os.environ.get("BLACKI_SECRET_KEY") or hashlib.sha256(
+    (AUTH_USERNAME + "|" + AUTH_PASSWORD + "|BLACKI STORE").encode("utf-8")
+).hexdigest()
+SESSION_SECONDS = 60 * 60 * 24 * 30
+COOKIE_NAME = "blacki_session"
+
+LOGIN_HTML = r"""<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no, viewport-fit=cover">
+<meta name="theme-color" content="#090909">
+<meta name="robots" content="noindex,nofollow,noarchive">
+<title>BLACKI STORE — تسجيل الدخول</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
+body{min-height:100vh;min-height:100dvh;background:#090909;color:#f5f5f5;font-family:-apple-system,system-ui,'Segoe UI',sans-serif;display:flex;align-items:center;justify-content:center;padding:24px;overflow:hidden;position:relative}
+.glow{position:fixed;border-radius:50%;filter:blur(70px);opacity:.22;pointer-events:none}.g1{width:260px;height:260px;background:#E8C547;top:-100px;right:-90px}.g2{width:230px;height:230px;background:#6f5c16;bottom:-120px;left:-90px}
+.login-wrap{width:100%;max-width:420px;position:relative;z-index:1}.brand{text-align:center;margin-bottom:20px}.mark{width:68px;height:68px;margin:0 auto 13px;border-radius:22px;background:linear-gradient(145deg,#f3d55a,#cba92b);display:flex;align-items:center;justify-content:center;color:#090909;font-size:31px;box-shadow:0 16px 40px rgba(232,197,71,.18)}
+.logo{direction:ltr;color:#E8C547;font-size:28px;font-weight:950;letter-spacing:-.8px}.tagline{color:#747474;font-size:13px;margin-top:5px}.login{background:rgba(18,18,18,.94);border:1px solid #292929;border-radius:26px;padding:24px 20px 20px;box-shadow:0 24px 80px rgba(0,0,0,.55);backdrop-filter:blur(16px)}
+.welcome{font-size:20px;font-weight:900;margin-bottom:4px}.hint{font-size:13px;color:#777;margin-bottom:20px;line-height:1.5}
+label{display:block;color:#8a8a8a;font-size:12px;font-weight:800;margin:15px 2px 7px}.input-wrap{position:relative}.input-icon{position:absolute;right:14px;top:50%;transform:translateY(-50%);font-size:17px;opacity:.65}
+input{width:100%;border:1px solid #2a2a2a;background:#0b0b0b;color:#fff;border-radius:15px;padding:15px 44px 15px 14px;font-size:16px;outline:none;direction:ltr;transition:.2s}input:focus{border-color:#E8C547;box-shadow:0 0 0 3px rgba(232,197,71,.09)}
+button{width:100%;margin-top:22px;border:0;border-radius:15px;background:#E8C547;color:#080808;padding:16px;font-size:16px;font-weight:950;cursor:pointer;box-shadow:0 12px 28px rgba(232,197,71,.14)}button:active{transform:scale(.99)}
+.error{background:#2d1515;border:1px solid #5a2929;color:#ffbcbc;border-radius:13px;padding:11px;text-align:center;font-size:13px;margin-bottom:15px}.secure{text-align:center;color:#555;font-size:11px;margin-top:16px}
+</style>
+</head>
+<body>
+<div class="glow g1"></div><div class="glow g2"></div>
+<div class="login-wrap">
+  <div class="brand"><div class="mark">🛍️</div><div class="logo">BLACKI STORE</div><div class="tagline">متجرك معك أينما كنت</div></div>
+  <form class="login" method="post" action="/login" autocomplete="on">
+    <div class="welcome">أهلاً بعودتك 👋</div>
+    <div class="hint">سجّل الدخول للوصول إلى المنتجات والمبيعات.</div>
+    {{ERROR}}
+    <label for="username">اسم المستخدم</label>
+    <div class="input-wrap"><span class="input-icon">👤</span><input id="username" name="username" type="text" autocomplete="username" required autofocus></div>
+    <label for="password">كلمة المرور</label>
+    <div class="input-wrap"><span class="input-icon">🔑</span><input id="password" name="password" type="password" autocomplete="current-password" required></div>
+    <button type="submit">دخول إلى المتجر</button>
+    <div class="secure">🔒 اتصال خاص وآمن</div>
+  </form>
+</div>
+</body>
+</html>"""
+
+
+def _b64encode(value):
+    return base64.urlsafe_b64encode(value).decode("ascii").rstrip("=")
+
+
+def _b64decode(value):
+    return base64.urlsafe_b64decode(value + "=" * (-len(value) % 4))
+
+
+def make_session_token():
+    expires = int(time.time()) + SESSION_SECONDS
+    payload = f"{AUTH_USERNAME}|{expires}|{secrets.token_hex(12)}".encode("utf-8")
+    payload_text = _b64encode(payload)
+    signature = hmac.new(AUTH_SECRET.encode("utf-8"), payload_text.encode("ascii"), hashlib.sha256).hexdigest()
+    return f"{payload_text}.{signature}"
+
+
+def valid_session_token(token):
+    try:
+        payload_text, signature = token.rsplit(".", 1)
+        expected = hmac.new(AUTH_SECRET.encode("utf-8"), payload_text.encode("ascii"), hashlib.sha256).hexdigest()
+        if not hmac.compare_digest(signature, expected):
+            return False
+        username, expires, _nonce = _b64decode(payload_text).decode("utf-8").split("|", 2)
+        return hmac.compare_digest(
+            username.encode("utf-8"), AUTH_USERNAME.encode("utf-8")
+        ) and int(expires) >= int(time.time())
+    except (ValueError, TypeError, UnicodeDecodeError):
+        return False
+
+
+def cookie_is_secure():
+    explicit = os.environ.get("BLACKI_COOKIE_SECURE")
+    if explicit is not None:
+        return explicit.strip().lower() not in ("0", "false", "no", "off")
+    return bool(os.environ.get("RAILWAY_ENVIRONMENT") or os.environ.get("RAILWAY_PUBLIC_DOMAIN"))
+
+
+def safe_image_path(raw_path):
+    """Resolve old Windows image paths and new relative image paths inside blacki_data/images."""
+    if not raw_path:
+        return None
+    decoded = urllib.parse.unquote(str(raw_path)).replace("\\", "/")
+    filename = decoded.rsplit("/", 1)[-1]
+    if not filename or filename in (".", ".."):
+        return None
+    candidate = os.path.abspath(os.path.join(DATA, "images", filename))
+    image_root = os.path.abspath(os.path.join(DATA, "images"))
+    try:
+        if os.path.commonpath([candidate, image_root]) != image_root:
+            return None
+    except ValueError:
+        return None
+    return candidate if os.path.isfile(candidate) else None
+
+
 class Handler(http.server.BaseHTTPRequestHandler):
     def log_message(self, format, *args):
         pass  # quiet
 
+    def send_bytes(self, status, content_type, data, extra_headers=None):
+        self.send_response(status)
+        self.send_header("Content-Type", content_type)
+        self.send_header("Content-Length", str(len(data)))
+        self.send_header("X-Robots-Tag", "noindex, nofollow, noarchive")
+        if extra_headers:
+            for name, value in extra_headers:
+                self.send_header(name, value)
+        self.end_headers()
+        self.wfile.write(data)
+
+    def redirect(self, location, cookie_header=None):
+        self.send_response(303)
+        self.send_header("Location", location)
+        self.send_header("Cache-Control", "no-store")
+        if cookie_header:
+            self.send_header("Set-Cookie", cookie_header)
+        self.end_headers()
+
+    def authenticated(self):
+        raw_cookie = self.headers.get("Cookie", "")
+        jar = cookies.SimpleCookie()
+        try:
+            jar.load(raw_cookie)
+        except cookies.CookieError:
+            return False
+        morsel = jar.get(COOKIE_NAME)
+        return bool(morsel and valid_session_token(morsel.value))
+
+    def require_auth(self):
+        if self.authenticated():
+            return True
+        if self.path.startswith("/api/") or self.command in ("POST", "DELETE"):
+            self.send_bytes(401, "application/json; charset=utf-8", b'{"error":"login required"}')
+        else:
+            self.redirect("/login")
+        return False
+
+    def show_login(self, error=False):
+        message = '<div class="error">اسم المستخدم أو كلمة المرور غير صحيحة</div>' if error else ""
+        page = LOGIN_HTML.replace("{{ERROR}}", message).encode("utf-8")
+        self.send_bytes(200, "text/html; charset=utf-8", page, [("Cache-Control", "no-store")])
+
     def do_GET(self):
+        path = urllib.parse.urlparse(self.path).path
+        if path == "/health":
+            self.send_bytes(200, "text/plain; charset=utf-8", b"ok")
+            return
+        if path == "/robots.txt":
+            self.send_bytes(200, "text/plain; charset=utf-8", b"User-agent: *\nDisallow: /\n")
+            return
+        if path == "/login":
+            if self.authenticated():
+                self.redirect("/")
+            else:
+                self.show_login(error=False)
+            return
+        if path == "/logout":
+            cookie = f"{COOKIE_NAME}=; Path=/; Max-Age=0; HttpOnly; SameSite=Strict"
+            if cookie_is_secure():
+                cookie += "; Secure"
+            self.redirect("/login", cookie)
+            return
+        if not self.require_auth():
+            return
         if self.path == "/" or self.path == "/index.html":
             self.send_response(200)
             self.send_header("Content-Type", "text/html; charset=utf-8")
@@ -817,8 +1230,8 @@ class Handler(http.server.BaseHTTPRequestHandler):
         elif self.path.startswith("/img?"):
             parsed = urllib.parse.urlparse(self.path)
             params = urllib.parse.parse_qs(parsed.query)
-            img_path = params.get("path", [""])[0]
-            if os.path.exists(img_path):
+            img_path = safe_image_path(params.get("path", [""])[0])
+            if img_path:
                 try:
                     from PIL import Image as PILImage
                     import io
@@ -853,8 +1266,8 @@ class Handler(http.server.BaseHTTPRequestHandler):
         elif self.path.startswith("/img-full?"):
             parsed = urllib.parse.urlparse(self.path)
             params = urllib.parse.parse_qs(parsed.query)
-            img_path = params.get("path", [""])[0]
-            if os.path.exists(img_path):
+            img_path = safe_image_path(params.get("path", [""])[0])
+            if img_path:
                 ext = os.path.splitext(img_path)[1].lower()
                 ct = {".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".png": "image/png",
                       ".gif": "image/gif", ".webp": "image/webp", ".bmp": "image/bmp"}
@@ -872,6 +1285,28 @@ class Handler(http.server.BaseHTTPRequestHandler):
             self.end_headers()
 
     def do_POST(self):
+        path = urllib.parse.urlparse(self.path).path
+        if path == "/login":
+            length = min(int(self.headers.get("Content-Length", 0)), 8192)
+            form = urllib.parse.parse_qs(self.rfile.read(length).decode("utf-8", errors="replace"))
+            username = form.get("username", [""])[0]
+            password = form.get("password", [""])[0]
+            valid_user = hmac.compare_digest(
+                username.encode("utf-8"), AUTH_USERNAME.encode("utf-8")
+            )
+            valid_password = hmac.compare_digest(
+                password.encode("utf-8"), AUTH_PASSWORD.encode("utf-8")
+            )
+            if valid_user and valid_password:
+                cookie = f"{COOKIE_NAME}={make_session_token()}; Path=/; Max-Age={SESSION_SECONDS}; HttpOnly; SameSite=Strict"
+                if cookie_is_secure():
+                    cookie += "; Secure"
+                self.redirect("/", cookie)
+            else:
+                self.show_login(error=True)
+            return
+        if not self.require_auth():
+            return
         if self.path == "/api/products":
             length = int(self.headers.get("Content-Length", 0))
             body = self.rfile.read(length)
@@ -939,13 +1374,15 @@ class Handler(http.server.BaseHTTPRequestHandler):
                     self.send_response(200)
                     self.send_header("Content-Type", "application/json")
                     self.end_headers()
-                    self.wfile.write(json.dumps({"path": dest}).encode("utf-8"))
+                    self.wfile.write(json.dumps({"path": "images/" + new_name}).encode("utf-8"))
                     return
 
             self.send_response(400)
             self.end_headers()
 
     def do_DELETE(self):
+        if not self.require_auth():
+            return
         if self.path.startswith("/api/products/"):
             pid = self.path.split("/")[-1]
             prods = load_products()
@@ -969,11 +1406,13 @@ class Handler(http.server.BaseHTTPRequestHandler):
 
 if __name__ == "__main__":
     ip = get_local_ip()
-    server = http.server.HTTPServer(("0.0.0.0", PORT), Handler)
+    server = http.server.ThreadingHTTPServer(("0.0.0.0", PORT), Handler)
+    print("BLACKI LOGIN FIX V2")
     print("=" * 50)
     print("   BLACKI STORE - NEW SALE EDIT BUILD 2026")
     print("=" * 50)
     print("   RUNNING FILE: blacki_sales_edit_NEW.py")
+    print(f"   DATA FOLDER: {DATA}")
     print("   BUILD: NEW SALE EDIT BUILD 2026")
     print()
     print(f"   Open this on your phone:")
